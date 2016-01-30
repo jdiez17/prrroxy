@@ -1,0 +1,41 @@
+# If we receive X-Forwarded-Proto, pass it through; otherwise, pass along the
+# scheme used to connect to this server
+map $http_x_forwarded_proto $proxy_x_forwarded_proto {
+  default $http_x_forwarded_proto;
+  ''      $scheme;
+}
+
+# If we receive Upgrade, set Connection to "upgrade"; otherwise, delete any
+# Connection header that may have been passed to this server
+map $http_upgrade $proxy_connection {
+  default upgrade;
+  '' close;
+}
+
+log_format vhost '$host $remote_addr - $remote_user [$time_local] '
+                 '"$request" $status $body_bytes_sent '
+                 '"$http_referer" "$http_user_agent"';
+
+proxy_http_version 1.1;
+proxy_buffering off;
+proxy_set_header Host $http_host;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection $proxy_connection;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $proxy_x_forwarded_proto;
+
+server {
+    listen 80;
+    access_log /var/log/nginx/access.log vhost;
+
+{{ range $container := whereLabelValueMatches $ "role" "worker" }}
+    location /proxy/{{ $container.ID }} {
+        rewrite ^/proxy/{{ $container.ID }}/(.*)$ /$1 break;
+
+        {{ $address := index $container.Addresses 0 }}
+        proxy_pass http://{{ $address.IP }}:{{ $address.Port }};
+    }
+{{ end }}
+
+}
