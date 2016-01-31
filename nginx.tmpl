@@ -27,15 +27,24 @@ proxy_set_header X-Forwarded-Proto $proxy_x_forwarded_proto;
 
 server {
     listen 80;
+    server_name _;
     access_log /var/log/nginx/access.log vhost;
 
 {{ range $container := whereLabelValueMatches $ "role" "worker" }}
-    location /proxy/{{ $container.ID }} {
-        rewrite ^/proxy/{{ $container.ID }}/(.*)$ /$1 break;
-
+    location ^~ /proxy/{{ $container.ID }}/ {
         {{ $address := index $container.Addresses 0 }}
-        proxy_pass http://{{ $address.IP }}:{{ $address.Port }};
+        proxy_pass http://{{ $address.IP }}:{{ $address.Port }}/;
     }
 {{ end }}
 
+{{ range $container := whereLabelValueMatches $ "role" "masterrr" }}
+    location ~/(start|stop|status) {
+        {{ $address := index $container.Addresses 0 }}
+        proxy_pass http://{{ $address.IP }}:{{ $address.Port }}; # note no trailing /. we want to preserve it here.
+    }
+{{ end }}
+
+    location / {
+        root /mnt/interrract;
+    }
 }
